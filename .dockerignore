@@ -1,0 +1,9 @@
+_build/
+deps/
+.git/
+.gitignore
+.elixir_ls/
+cover/
+doc/
+*.md
+priv/static/
