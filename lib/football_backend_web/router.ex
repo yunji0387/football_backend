@@ -10,6 +10,9 @@ defmodule FootballBackendWeb.Router do
 
     get "/health", HealthController, :index
     get "/standings", StandingController, :index
+    get "/rounds", RoundController, :index
+    get "/teams/:id/statistics", TeamStatisticsController, :show
+    get "/matches/:id/details", FixtureDetailsController, :show
 
     resources "/teams", TeamController, except: [:new, :edit]
     resources "/players", PlayerController, except: [:new, :edit]

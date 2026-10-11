@@ -14,17 +14,17 @@ This inventory is based on [`api-football-reference.md`](api-football-reference.
 | `GET /leagues` | Leagues, seasons, and coverage | Not implemented | League ID is currently configured as `39` (Premier League). |
 | `GET /leagues/seasons` | Available season years | Not implemented | Season is selected automatically, with an optional `.env` override. |
 | `GET /teams` | League teams and team details | **Implemented** | Synced to PostgreSQL; exposed by `GET /api/teams`. |
-| `GET /teams/statistics` | Team statistics for a league season | Not implemented | — |
+| `GET /teams/statistics` | Team statistics for a league season | **Implemented** | Cached daily; exposed by `GET /api/teams/:id/statistics` using the local team ID. |
 | `GET /teams/seasons` | Seasons available for a team | Not implemented | — |
 | `GET /teams/countries` | Countries associated with teams | Not implemented | — |
 | `GET /venues` | Venue details | Not implemented | — |
 | `GET /standings` | League table and team records | **Implemented** | Synced to PostgreSQL; exposed by `GET /api/standings`. |
-| `GET /fixtures/rounds` | Rounds for a league season | Not implemented | — |
+| `GET /fixtures/rounds` | Rounds for a league season | **Implemented** | Cached daily; exposed by `GET /api/rounds`. |
 | `GET /fixtures` | Fixtures, dates, statuses, and scores | **Implemented** | Synced to PostgreSQL; exposed by `GET /api/matches`. |
 | `GET /fixtures/headtohead` | Head-to-head fixtures between teams | Not implemented | — |
-| `GET /fixtures/statistics` | Match statistics | Not implemented | — |
-| `GET /fixtures/events` | Goals, cards, and substitutions | Not implemented | — |
-| `GET /fixtures/lineups` | Starting lineups and formations | Not implemented | — |
+| `GET /fixtures/statistics` | Match statistics | **Implemented** | Cached for selected recent/upcoming matches; returned by `GET /api/matches/:id/details`. |
+| `GET /fixtures/events` | Goals, cards, and substitutions | **Implemented** | Cached for selected live/recent matches; returned by `GET /api/matches/:id/details`. |
+| `GET /fixtures/lineups` | Starting lineups and formations | **Implemented** | Cached for selected upcoming/recent matches; returned by `GET /api/matches/:id/details`. |
 | `GET /fixtures/players` | Player performances for a fixture | Not implemented | Player data was deferred from the first version. |
 | `GET /injuries` | Injuries and unavailable players | Not implemented | — |
 | `GET /predictions` | Fixture predictions | Not implemented | — |
@@ -50,5 +50,4 @@ This inventory is based on [`api-football-reference.md`](api-football-reference.
 
 ## Current sync scope
 
-The scheduled sync calls `GET /teams`, `GET /fixtures`, and `GET /standings` for the configured league and season. It does not fetch player data. The app's local `/api/players` CRUD routes are separate and do not mean API-Football player endpoints are integrated.
-
+The scheduled sync calls `GET /teams`, `GET /fixtures`, `GET /standings`, `GET /teams/statistics`, `GET /fixtures/rounds`, `GET /fixtures/events`, `GET /fixtures/lineups`, and `GET /fixtures/statistics` for the configured league and season. Round and team statistics snapshots are cached for 24 hours. Match detail calls are limited to three candidate fixtures per sync, with endpoint-specific caching, to control API usage. It does not fetch player data. The app's local `/api/players` CRUD routes are separate and do not mean API-Football player endpoints are integrated.
