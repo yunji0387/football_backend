@@ -11,3 +11,5 @@ erl_crash.dump
 .env
 football_backend-*.tar
 priv/static/
+docs/api-football-openapi.yaml
+docs/api-football-reference.md
