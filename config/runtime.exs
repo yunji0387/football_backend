@@ -1,13 +1,15 @@
 import Config
 
 season_override =
-  case Integer.parse(System.get_env("API_SPORT_FOOTBALL_SEASON", "")) do
+  case Integer.parse(System.get_env("FOOTBALL_SEASON", "2024")) do
     {season, ""} when season > 0 -> season
     _ -> nil
   end
 
 config :football_backend, FootballBackend.Football,
   api_key: System.get_env("API_SPORT_FOOTBALL_API_KEY"),
+  football_data_token: System.get_env("FOOTBALL_DATA_TOKEN"),
+  football_competition: System.get_env("FOOTBALL_COMPETITION", "PL"),
   season_override: season_override
 
 if config_env() == :prod do

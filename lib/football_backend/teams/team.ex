@@ -7,6 +7,7 @@ defmodule FootballBackend.Teams.Team do
     field :country, :string
     field :founded_year, :integer
     field :api_football_id, :integer
+    field :football_data_id, :integer
     field :logo, :string
 
     has_many :players, FootballBackend.Players.Player
@@ -15,7 +16,7 @@ defmodule FootballBackend.Teams.Team do
   end
 
   @required_fields ~w(name country)a
-  @optional_fields ~w(founded_year api_football_id logo)a
+  @optional_fields ~w(founded_year api_football_id football_data_id logo)a
 
   def changeset(team, attrs) do
     team

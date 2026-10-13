@@ -17,7 +17,7 @@ defmodule FootballBackend.Football.SyncWorker do
     if Application.get_env(:football_backend, FootballBackend.Football, []) |> Keyword.get(:enabled, true) do
       case FootballBackend.Football.sync() do
         :ok -> :ok
-        {:error, reason} -> Logger.warning("Scheduled API-Football sync skipped: #{inspect(reason)}")
+        {:error, reason} -> Logger.warning("Scheduled football data sync skipped: #{inspect(reason)}")
       end
     end
 

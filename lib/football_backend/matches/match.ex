@@ -7,6 +7,7 @@ defmodule FootballBackend.Matches.Match do
     field :home_score, :integer, default: 0
     field :away_score, :integer, default: 0
     field :api_football_id, :integer
+    field :football_data_id, :integer
     field :league_id, :integer, default: 39
     field :season, :integer
     field :status, :string
@@ -20,7 +21,7 @@ defmodule FootballBackend.Matches.Match do
   end
 
   @required_fields ~w(home_team_id away_team_id played_at)a
-  @optional_fields ~w(home_score away_score api_football_id league_id season status elapsed round)a
+  @optional_fields ~w(home_score away_score api_football_id football_data_id league_id season status elapsed round)a
 
   def changeset(match, attrs) do
     match

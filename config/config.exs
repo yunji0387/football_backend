@@ -20,8 +20,9 @@ config :phoenix, :json_library, Jason
 
 config :football_backend, FootballBackend.Football,
   api_key: System.get_env("API_SPORT_FOOTBALL_API_KEY"),
-  league_id: 39,
-  season_override: nil,
+  football_data_token: System.get_env("FOOTBALL_DATA_TOKEN"),
+  football_competition: System.get_env("FOOTBALL_COMPETITION", "PL"),
+  season_override: 2024,
   sync_interval_ms: 6 * 60 * 60 * 1_000,
   enabled: true
 

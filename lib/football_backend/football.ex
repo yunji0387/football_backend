@@ -13,6 +13,7 @@ defmodule FootballBackend.Football do
   @season_cache_seconds 86_400
   @live_cache_seconds 900
   @max_detail_fixtures_per_sync 3
+  @api_football_league_ids %{"PL" => 39}
 
   def current_season(date \\ Date.utc_today()) do
     case Keyword.get(Application.get_env(:football_backend, __MODULE__, []), :season_override) do
@@ -71,6 +72,23 @@ defmodule FootballBackend.Football do
   end
 
   def sync do
+    case sync_primary() do
+      :ok -> :ok
+      {:error, primary_reason} ->
+        Logger.warning("Primary API-Football sync failed; trying football-data.org backup: #{inspect(primary_reason)}")
+
+        case FootballBackend.Football.FootballData.sync() do
+          :ok ->
+            Logger.info("football-data.org backup sync completed")
+            :ok
+
+          {:error, backup_reason} ->
+            {:error, {:all_providers_failed, %{api_football: primary_reason, football_data: backup_reason}}}
+        end
+    end
+  end
+
+  defp sync_primary do
     with key when is_binary(key) and key != "" <- api_key(),
          league_id <- configured_league_id(),
          season <- current_season(),
@@ -95,7 +113,8 @@ defmodule FootballBackend.Football do
   end
 
   def configured_league_id do
-    Application.get_env(:football_backend, __MODULE__, []) |> Keyword.get(:league_id, 39)
+    competition = Application.get_env(:football_backend, __MODULE__, []) |> Keyword.get(:football_competition, "PL")
+    Map.fetch!(@api_football_league_ids, competition)
   end
 
   defp api_key, do: Application.get_env(:football_backend, __MODULE__, []) |> Keyword.get(:api_key)

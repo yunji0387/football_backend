@@ -25,6 +25,21 @@ Seed sample data (Arsenal/Chelsea + a couple of players):
 docker compose exec app mix run priv/repo/seeds.exs
 ```
 
+## Connect with pgAdmin
+
+Start the Docker Compose services with `docker compose up --build`. In pgAdmin, register a server and use these settings:
+
+| Setting | Value |
+| --- | --- |
+| Name (General tab) | `Football Backend` (any label is fine) |
+| Host name/address | `localhost` |
+| Port | `5432` |
+| Maintenance database | `football_backend_dev` |
+| Username | `postgres` |
+| Password | `postgres` |
+
+The password is the local development default from `docker-compose.yml`. If pgAdmin itself is running in a container on the same Docker Compose network, use `db` for the host name instead of `localhost`. After connecting, expand **Databases → football_backend_dev → Schemas → public → Tables** to browse the application tables. The database port is exposed on the host by the `5432:5432` mapping in Compose.
+
 ## API
 
 - `GET /api/health`
@@ -40,16 +55,9 @@ docker compose exec app mix run priv/repo/seeds.exs
 
 The backend syncs Premier League teams, fixtures/scores, standings, team statistics, fixture rounds, and selected fixture events, lineups, and statistics into PostgreSQL. Player data is not fetched. The sync runs one minute after startup and every six hours after that. Round and team statistics data is cached for 24 hours, and match detail calls are capped at three candidate fixtures per sync. API requests are spaced to stay within the free plan's per-minute limit; monitor the API's daily quota in the dashboard, especially when syncing fixture pages.
 
-Set `API_SPORT_FOOTBALL_API_KEY` in the project `.env` file. Docker Compose passes it to the app container; never commit the key. The initial league ID is 39 (Premier League), and the season is selected automatically based on the current date. To test against an older season allowed by the free plan, set `API_SPORT_FOOTBALL_SEASON=2024` in `.env`; remove it to return to automatic current-season selection. To add leagues later, change `league_id` in `config/config.exs` or extend it to a configured list.
+Set `API_SPORT_FOOTBALL_API_KEY` in the project `.env` file. Docker Compose passes it to the app container; never commit the key. Both data providers use the shared `FOOTBALL_SEASON` and `FOOTBALL_COMPETITION` settings. They default to season `2024` and competition `PL` (Premier League); API-Football maps `PL` to league ID 39. `FOOTBALL_DATA_TOKEN` is only needed for the backup provider.
 
 The existing `/api/teams` and `/api/matches` endpoints include synced records. Standings and rounds are available from `/api/standings` and `/api/rounds`; omitting `league_id` and `season` selects the configured league and current season. Team statistics are available at `/api/teams/:id/statistics`, where `:id` is the local database team ID. Fixture details are available at `/api/matches/:id/details`, where `:id` is the local database match ID. The sync does not make API-Football calls when the key is missing.
-
-### TODO after upgrading the API-Football plan
-
-- Remove `API_SPORT_FOOTBALL_SEASON` from `.env` if it was set to `2024` for free-plan testing. This restores automatic selection of the current season.
-- Recreate the app container so it picks up the updated environment: `docker compose up -d --force-recreate app`.
-- Run a manual sync with `docker compose exec app mix run -e 'IO.inspect(FootballBackend.Football.sync())'` and confirm it returns `:ok`.
-- Verify current-season data at `/api/matches`, `/api/standings`, and `/api/rounds`. If API-Football still reports a season access error, confirm the API key belongs to the upgraded plan.
 
 Example:
 
@@ -79,3 +87,9 @@ Stop and wipe the database volume too:
 ```sh
 docker compose down -v
 ```
+
+## football-data.org backup
+
+If the primary API-Football sync fails, the backend attempts a football-data.org sync for the competition selected by `FOOTBALL_COMPETITION`. The free football-data.org plan delays scores and schedules, so this is intended as a continuity fallback, not a live-score source. Its match and team IDs are stored separately from API-Football IDs.
+
+Set `FOOTBALL_DATA_TOKEN` in `.env` to enable the backup provider. Both providers follow `FOOTBALL_SEASON` (default `2024`) and `FOOTBALL_COMPETITION` (default `PL`). Database changes are applied by the existing migration workflow on app startup.
