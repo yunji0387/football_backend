@@ -5,6 +5,7 @@ defmodule FootballBackend.Football do
 
   alias FootballBackend.{Repo, Teams.Team}
   alias FootballBackend.Football.Standing
+  alias FootballBackend.Football.ProviderMappings
   alias FootballBackend.Football.ApiSnapshot
   alias FootballBackend.Matches.Match
 
@@ -45,11 +46,14 @@ defmodule FootballBackend.Football do
   def team_statistics(team_id, league_id \\ configured_league_id(), season \\ current_season()) do
     case Repo.get(Team, team_id) do
       nil -> nil
-      team when is_nil(team.api_football_id) -> nil
       team ->
-        case Repo.get_by(ApiSnapshot, endpoint: "teams/statistics", league_id: league_id, season: season, resource_id: to_string(team.api_football_id)) do
+        case ProviderMappings.team_external_id(team.id, "api_football") do
           nil -> nil
-          snapshot -> List.first(snapshot.payload["data"] || [])
+          external_id ->
+            case Repo.get_by(ApiSnapshot, endpoint: "teams/statistics", league_id: league_id, season: season, resource_id: to_string(external_id)) do
+              nil -> nil
+              snapshot -> List.first(snapshot.payload["data"] || [])
+            end
         end
     end
   end
@@ -57,17 +61,20 @@ defmodule FootballBackend.Football do
   def fixture_details(match_id) do
     case Repo.get(Match, match_id) do
       nil -> nil
-      match when is_nil(match.api_football_id) -> nil
       match ->
-        details =
-          ["fixtures/events", "fixtures/lineups", "fixtures/statistics"]
-          |> Enum.map(fn endpoint ->
-            snapshot = Repo.get_by(ApiSnapshot, endpoint: endpoint, league_id: match.league_id, season: match.season, resource_id: to_string(match.api_football_id))
-            {String.replace_prefix(endpoint, "fixtures/", ""), if(snapshot, do: snapshot.payload["data"], else: nil)}
-          end)
-          |> Map.new()
+        case ProviderMappings.match_external_id(match.id, "api_football") do
+          nil -> nil
+          external_id ->
+            details =
+              ["fixtures/events", "fixtures/lineups", "fixtures/statistics"]
+              |> Enum.map(fn endpoint ->
+                snapshot = Repo.get_by(ApiSnapshot, endpoint: endpoint, league_id: match.league_id, season: match.season, resource_id: to_string(external_id))
+                {String.replace_prefix(endpoint, "fixtures/", ""), if(snapshot, do: snapshot.payload["data"], else: nil)}
+              end)
+              |> Map.new()
 
-        Map.merge(%{api_football_id: match.api_football_id, status: match.status}, details)
+            Map.merge(%{api_football_id: external_id, status: match.status}, details)
+        end
     end
   end
 
@@ -324,38 +331,41 @@ defmodule FootballBackend.Football do
   end
 
   defp save_teams(rows) do
-    Enum.each(rows, fn %{"team" => team} ->
-      attrs = %{api_football_id: team["id"], name: team["name"], country: team["country"] || "England",
+    Enum.reduce_while(rows, :ok, fn %{"team" => team}, :ok ->
+      attrs = %{name: team["name"], country: team["country"] || "England",
         founded_year: team["founded"], logo: team["logo"]}
-      existing = Repo.get_by(Team, api_football_id: attrs.api_football_id) || Repo.get_by(Team, name: attrs.name)
 
-      case existing do
-        nil -> Repo.insert!(Team.changeset(%Team{}, attrs))
-        team -> Repo.update!(Team.changeset(team, attrs))
+      case ProviderMappings.upsert_team("api_football", team["id"], attrs) do
+        {:ok, _team} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
-    :ok
+    |> case do
+      :ok -> :ok
+      error -> error
+    end
   rescue
     error -> {:error, {:team_persistence, Exception.message(error)}}
   end
 
   defp save_fixtures(rows, league_id, season) do
-    team_ids = Repo.all(from t in Team, where: not is_nil(t.api_football_id), select: {t.api_football_id, t.id}) |> Map.new()
-
-    Enum.each(rows, fn %{"fixture" => fixture, "teams" => teams, "goals" => goals} ->
-      with home_id when not is_nil(home_id) <- Map.get(team_ids, teams["home"]["id"]),
-           away_id when not is_nil(away_id) <- Map.get(team_ids, teams["away"]["id"]),
+    Enum.reduce_while(rows, :ok, fn %{"fixture" => fixture, "teams" => teams, "goals" => goals}, :ok ->
+      with home_id when not is_nil(home_id) <- ProviderMappings.get_team_id("api_football", teams["home"]["id"]),
+           away_id when not is_nil(away_id) <- ProviderMappings.get_team_id("api_football", teams["away"]["id"]),
            {:ok, played_at, _} <- DateTime.from_iso8601(fixture["date"]) do
-        attrs = %{api_football_id: fixture["id"], league_id: league_id, season: season,
+        attrs = %{league_id: league_id, season: season,
           home_team_id: home_id, away_team_id: away_id, played_at: played_at,
           home_score: goals["home"] || 0, away_score: goals["away"] || 0,
           status: fixture["status"]["short"], elapsed: fixture["status"]["elapsed"], round: fixture["round"]}
-        Repo.insert!(Match.changeset(%Match{}, attrs), on_conflict: {:replace, [:home_team_id, :away_team_id, :played_at, :home_score, :away_score, :status, :elapsed, :round, :updated_at]}, conflict_target: :api_football_id)
+
+        case ProviderMappings.upsert_match("api_football", fixture["id"], attrs) do
+          {:ok, _match} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
       else
-        _ -> :ok
+        _ -> {:cont, :ok}
       end
     end)
-    :ok
   rescue
     error -> {:error, {:fixture_persistence, Exception.message(error)}}
   end
@@ -365,10 +375,7 @@ defmodule FootballBackend.Football do
     |> Enum.flat_map(fn row -> get_in(row, ["league", "standings"]) || [] end)
     |> Enum.each(fn table ->
       Enum.each(table, fn row ->
-        team_id = Repo.get_by(Team, api_football_id: row["team"]["id"]) |> case do
-          nil -> nil
-          team -> team.id
-        end
+        team_id = ProviderMappings.get_team_id("api_football", row["team"]["id"])
 
         if team_id do
           stats = row["all"] || %{}

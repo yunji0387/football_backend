@@ -93,3 +93,5 @@ docker compose down -v
 If the primary API-Football sync fails, the backend attempts a football-data.org sync for the competition selected by `FOOTBALL_COMPETITION`. The free football-data.org plan delays scores and schedules, so this is intended as a continuity fallback, not a live-score source. Its match and team IDs are stored separately from API-Football IDs.
 
 Set `FOOTBALL_DATA_TOKEN` in `.env` to enable the backup provider. Both providers follow `FOOTBALL_SEASON` (default `2024`) and `FOOTBALL_COMPETITION` (default `PL`). Database changes are applied by the existing migration workflow on app startup.
+
+Provider ID mapping and deduplication behavior is documented in [Data source identity and deduplication](docs/data-source-mapping.md).

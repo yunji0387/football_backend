@@ -1,8 +1,8 @@
 defmodule FootballBackend.Football.FootballData do
   @moduledoc "Fallback sync adapter for football-data.org's v4 API."
-  alias FootballBackend.{Repo, Teams.Team}
+  alias FootballBackend.Repo
   alias FootballBackend.Football.Standing
-  alias FootballBackend.Matches.Match
+  alias FootballBackend.Football.ProviderMappings
 
   @base_url ~c"https://api.football-data.org/v4"
   @min_interval_ms 6_100
@@ -57,15 +57,39 @@ defmodule FootballBackend.Football.FootballData do
   end
 
   defp save_matches(%{"matches" => matches}, standings, league_id, season) do
-    teams =
-      (Enum.flat_map(matches, &[&1["homeTeam"], &1["awayTeam"]]) ++
-         Enum.flat_map(standings["standings"] || [], &Enum.map(&1["table"] || [], fn row -> row["team"] end)))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq_by(& &1["id"])
-      |> Enum.map(&upsert_team/1)
-      |> Map.new(fn team -> {team.football_data_id, team.id} end)
+    team_rows =
+      Enum.flat_map(matches, &[&1["homeTeam"], &1["awayTeam"]]) ++
+        Enum.flat_map(standings["standings"] || [], &Enum.map(&1["table"] || [], fn row -> row["team"] end))
 
-    Enum.each(matches, fn row ->
+    with {:ok, teams} <- upsert_teams(team_rows),
+         :ok <- upsert_matches(matches, teams, league_id, season) do
+      :ok
+    end
+  rescue
+    error -> {:error, {:football_data_match_persistence, Exception.message(error)}}
+  end
+
+  defp save_matches(_, _, _, _), do: {:error, :football_data_invalid_matches_response}
+
+  defp upsert_teams(team_rows) do
+    team_rows
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(& &1["id"])
+    |> Enum.reduce_while({:ok, %{}}, fn team_data, {:ok, team_ids} ->
+      attrs = %{
+        name: team_data["name"], country: get_in(team_data, ["area", "name"]) || "Unknown",
+        logo: team_data["crest"]
+      }
+
+      case ProviderMappings.upsert_team("football_data", team_data["id"], attrs) do
+        {:ok, team} -> {:cont, {:ok, Map.put(team_ids, team_data["id"], team.id)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp upsert_matches(matches, teams, league_id, season) do
+    Enum.reduce_while(matches, :ok, fn row, :ok ->
       home = row["homeTeam"] || %{}
       away = row["awayTeam"] || %{}
       score = get_in(row, ["score", "fullTime"]) || %{}
@@ -74,42 +98,20 @@ defmodule FootballBackend.Football.FootballData do
            away_id when not is_nil(away_id) <- teams[away["id"]],
            {:ok, played_at, _} <- DateTime.from_iso8601(row["utcDate"]) do
         attrs = %{
-          football_data_id: row["id"], league_id: league_id, season: season,
-          home_team_id: home_id, away_team_id: away_id, played_at: played_at,
-          home_score: score["home"] || 0, away_score: score["away"] || 0,
+          league_id: league_id, season: season, home_team_id: home_id, away_team_id: away_id,
+          played_at: played_at, home_score: score["home"] || 0, away_score: score["away"] || 0,
           status: normalize_status(row["status"]), elapsed: nil,
           round: if(row["matchday"], do: "Matchday #{row["matchday"]}", else: row["stage"])
         }
 
-        existing = Repo.get_by(Match, football_data_id: attrs.football_data_id)
-        changeset = Match.changeset(existing || %Match{}, attrs)
-        Repo.insert!(changeset, on_conflict: {:replace, Map.keys(attrs) -- [:football_data_id] ++ [:updated_at]}, conflict_target: :football_data_id)
+        case ProviderMappings.upsert_match("football_data", row["id"], attrs) do
+          {:ok, _match} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
       else
-        _ -> :ok
+        _ -> {:cont, :ok}
       end
     end)
-
-    :ok
-  rescue
-    error -> {:error, {:football_data_match_persistence, Exception.message(error)}}
-  end
-
-  defp save_matches(_, _, _, _), do: {:error, :football_data_invalid_matches_response}
-
-  defp upsert_team(team_data) do
-    attrs = %{
-      football_data_id: team_data["id"], name: team_data["name"],
-      country: get_in(team_data, ["area", "name"]) || "Unknown", logo: team_data["crest"]
-    }
-
-    existing = Repo.get_by(Team, football_data_id: attrs.football_data_id) || Repo.get_by(Team, name: attrs.name)
-    case existing do
-      nil ->
-        Repo.insert!(Team.changeset(%Team{}, attrs), on_conflict: :nothing, conflict_target: :name)
-        Repo.get_by!(Team, name: attrs.name)
-
-      team -> Repo.update!(Team.changeset(team, attrs))
-    end
   end
 
   defp save_standings(%{"standings" => tables}, league_id, season) do
@@ -119,9 +121,9 @@ defmodule FootballBackend.Football.FootballData do
       nil -> :ok
       table ->
         Enum.each(table["table"] || [], fn row ->
-          team = Repo.get_by(Team, football_data_id: get_in(row, ["team", "id"]))
-          if team do
-            attrs = %{league_id: league_id, season: season, team_id: team.id, rank: row["position"],
+          team_id = ProviderMappings.get_team_id("football_data", get_in(row, ["team", "id"]))
+          if team_id do
+            attrs = %{league_id: league_id, season: season, team_id: team_id, rank: row["position"],
               points: row["points"], goals_diff: row["goalDifference"], played: row["playedGames"],
               win: row["won"], draw: row["draw"], lose: row["lost"], goals_for: row["goalsFor"],
               goals_against: row["goalsAgainst"], form: row["form"]}
