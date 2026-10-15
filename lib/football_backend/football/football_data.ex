@@ -1,5 +1,6 @@
 defmodule FootballBackend.Football.FootballData do
   @moduledoc "Fallback sync adapter for football-data.org's v4 API."
+  require Logger
   alias FootballBackend.Repo
   alias FootballBackend.Football.Standing
   alias FootballBackend.Football.ProviderMappings
@@ -19,11 +20,44 @@ defmodule FootballBackend.Football.FootballData do
          {:ok, standings} <- get("competitions/#{competition}/standings?season=#{season}", token),
          :ok <- save_matches(matches, standings, league_id, season),
          :ok <- save_standings(standings, league_id, season) do
+      sync_top_scorers(token, competition, league_id, season)
       :ok
     else
       nil -> {:error, :football_data_token_not_configured}
       "" -> {:error, :football_data_token_not_configured}
       {:error, _} = error -> error
+    end
+  end
+
+  defp sync_top_scorers(token, competition, league_id, season) do
+    case get("competitions/#{competition}/scorers?season=#{season}", token) do
+      {:ok, %{"scorers" => rows}} ->
+        scorers =
+          Enum.map(rows, fn row ->
+            player = row["player"] || %{}
+            team = row["team"] || %{}
+
+            %{
+              external_id: player["id"],
+              player: %{name: player["name"], position: player["position"], jersey_number: player["shirtNumber"]},
+              team: %{external_id: team["id"], name: team["name"], logo: team["crest"], country: "England"},
+              statistics: %{
+                appearances: row["playedMatches"], lineups: nil, minutes: nil,
+                goals: row["goals"] || 0, assists: row["assists"], penalties: row["penalties"],
+                shots: nil, shots_on_target: nil, yellow_cards: nil, red_cards: nil, rating: nil
+              },
+              provider_data: row
+            }
+          end)
+          |> Enum.filter(&is_integer(&1.external_id))
+
+        case FootballBackend.Players.import_provider_scorers("football_data", league_id, season, scorers) do
+          :ok -> Logger.info("football-data.org top scorers synced")
+          {:error, reason} -> Logger.warning("football-data.org top scorers were not fully synced: #{inspect(reason)}")
+        end
+
+      {:ok, _response} -> Logger.warning("football-data.org scorer response is missing scorer data")
+      {:error, reason} -> Logger.warning("football-data.org top scorers unavailable: #{inspect(reason)}")
     end
   end
 
@@ -99,7 +133,7 @@ defmodule FootballBackend.Football.FootballData do
            {:ok, played_at, _} <- DateTime.from_iso8601(row["utcDate"]) do
         attrs = %{
           league_id: league_id, season: season, home_team_id: home_id, away_team_id: away_id,
-          played_at: played_at, home_score: score["home"] || 0, away_score: score["away"] || 0,
+          played_at: played_at, home_score: score["home"], away_score: score["away"],
           status: normalize_status(row["status"]), elapsed: nil,
           round: if(row["matchday"], do: "Matchday #{row["matchday"]}", else: row["stage"])
         }

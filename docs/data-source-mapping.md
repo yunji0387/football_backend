@@ -34,6 +34,14 @@ Standings are upserted by the existing `(league_id, season, team_id)` key, so a 
 
 Match events, lineups, team statistics, and similar details remain provider-specific snapshots and are not merged across providers.
 
+## Player identity and scorer statistics
+
+Canonical players can have provider IDs in `player_provider_ids`, uniquely keyed by `(provider, external_id)` and `(player_id, provider)`. Player names are matched only when normalized name and canonical team identify one existing player; ambiguous matches fail instead of guessing. A provider-specific ID is the durable link after the first successful mapping.
+
+Top-scorer season statistics are stored separately by provider, league, season, player, and team in `player_season_stats`. This preserves the distinct coverage and values returned by each source and supports transfers where one player's season has multiple team rows. A successful complete scorer import removes stale rows for that provider/league/season; a failed import leaves the last successful rows intact. `GET /api/scorers` prefers the API-Football snapshot and falls back to football-data.org only when no API-Football scorer rows exist for that league and season.
+
+Missing player statistics from a provider remain `null`; do not substitute zero unless zero is an actual value from the provider.
+
 ## Existing data
 
 The provider mapping migration backfills identities from the legacy provider ID columns. It does not delete or automatically merge any pre-existing duplicate local teams or matches. Review and reconcile any such rows before deleting them, because players, standings, fixtures, and provider snapshots may reference those IDs.

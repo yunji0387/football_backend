@@ -50,14 +50,15 @@ The password is the local development default from `docker-compose.yml`. If pgAd
 - `GET /api/teams/:id/statistics`
 - `GET /api/rounds?league_id=39&season=2026`
 - `GET /api/standings?league_id=39&season=2026`
+- `GET /api/scorers?league_id=39&season=2024`
 
 ## API-Football sync
 
-The backend syncs Premier League teams, fixtures/scores, standings, team statistics, fixture rounds, and selected fixture events, lineups, and statistics into PostgreSQL. Player data is not fetched. The sync runs one minute after startup and every six hours after that. Round and team statistics data is cached for 24 hours, and match detail calls are capped at three candidate fixtures per sync. API requests are spaced to stay within the free plan's per-minute limit; monitor the API's daily quota in the dashboard, especially when syncing fixture pages.
+The backend syncs Premier League teams, fixtures/scores, standings, top scorers, team statistics, fixture rounds, and selected fixture events, lineups, and statistics into PostgreSQL. Full player profiles and per-fixture player performances are not fetched. The sync runs one minute after startup and every six hours after that. Round and team statistics data is cached for 24 hours, and match detail calls are capped at three candidate fixtures per sync. API requests are spaced to stay within the free plan's per-minute limit; monitor the API's daily quota in the dashboard, especially when syncing fixture pages.
 
 Set `API_SPORT_FOOTBALL_API_KEY` in the project `.env` file. Docker Compose passes it to the app container; never commit the key. Both data providers use the shared `FOOTBALL_SEASON` and `FOOTBALL_COMPETITION` settings. They default to season `2024` and competition `PL` (Premier League); API-Football maps `PL` to league ID 39. `FOOTBALL_DATA_TOKEN` is only needed for the backup provider.
 
-The existing `/api/teams` and `/api/matches` endpoints include synced records. Standings and rounds are available from `/api/standings` and `/api/rounds`; omitting `league_id` and `season` selects the configured league and current season. Team statistics are available at `/api/teams/:id/statistics`, where `:id` is the local database team ID. Fixture details are available at `/api/matches/:id/details`, where `:id` is the local database match ID. The sync does not make API-Football calls when the key is missing.
+The existing `/api/teams` and `/api/matches` endpoints include synced records. Standings, rounds, and top scorers are available from `/api/standings`, `/api/rounds`, and `/api/scorers`; omitting `league_id` and `season` selects the configured league and current season. Team statistics are available at `/api/teams/:id/statistics`, where `:id` is the local database team ID. Fixture details are available at `/api/matches/:id/details`, where `:id` is the local database match ID. The sync does not make API-Football calls when the key is missing.
 
 Example:
 
@@ -97,3 +98,5 @@ Set `FOOTBALL_DATA_TOKEN` in `.env` to enable the backup provider. Both provider
 Provider ID mapping and deduplication behavior is documented in [Data source identity and deduplication](docs/data-source-mapping.md).
 
 For provider endpoint and response-field comparisons, see the [API-Football reference](docs/api-football-reference.md) and the [football-data.org v4 reference](docs/football-data-reference.md).
+
+The planned MVP reader experience and provider decisions are tracked in the [simple football app roadmap](docs/football-app-roadmap.md).

@@ -12,8 +12,8 @@ defmodule FootballBackend.Players.Player do
     timestamps(type: :utc_datetime)
   end
 
-  @required_fields ~w(name position team_id)a
-  @optional_fields ~w(jersey_number)a
+  @required_fields ~w(name team_id)a
+  @optional_fields ~w(position jersey_number)a
 
   def changeset(player, attrs) do
     player

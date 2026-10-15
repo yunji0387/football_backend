@@ -1,9 +1,9 @@
 defmodule FootballBackend.Football.ProviderMappings do
-  @moduledoc "Maps provider-specific IDs and names to canonical local teams and matches."
+  @moduledoc "Maps provider-specific IDs and names to canonical local teams, matches, and players."
   import Ecto.Query
 
-  alias FootballBackend.{Repo, Teams.Team, Matches.Match}
-  alias FootballBackend.Football.{TeamProviderId, MatchProviderId}
+  alias FootballBackend.{Repo, Teams.Team, Matches.Match, Players.Player}
+  alias FootballBackend.Football.{TeamProviderId, MatchProviderId, PlayerProviderId}
 
   @team_suffixes ["football club", "a f c", "f c", "afc", "fc", "cf", "sc"]
   @team_name_aliases %{
@@ -31,6 +31,13 @@ defmodule FootballBackend.Football.ProviderMappings do
     case Repo.get_by(MatchProviderId, provider: provider, external_id: external_id) do
       nil -> nil
       mapping -> mapping.match_id
+    end
+  end
+
+  def get_player_id(provider, external_id) do
+    case Repo.get_by(PlayerProviderId, provider: provider, external_id: external_id) do
+      nil -> nil
+      mapping -> mapping.player_id
     end
   end
 
@@ -90,6 +97,28 @@ defmodule FootballBackend.Football.ProviderMappings do
     |> unwrap_transaction()
   end
 
+  def upsert_player(provider, external_id, attrs) do
+    Repo.transaction(fn ->
+      existing = get_player_id(provider, external_id)
+      attrs = Enum.reject(attrs, fn {key, value} -> key in [:position, :jersey_number] and is_nil(value) end) |> Map.new()
+
+      player =
+        case existing && Repo.get(Player, existing) do
+          %Player{} = player -> Repo.update!(Player.changeset(player, attrs))
+          nil ->
+            case find_player_by_name_and_team(attrs.name, attrs.team_id) do
+              {:ok, %Player{} = player} -> Repo.update!(Player.changeset(player, attrs))
+              {:ok, nil} -> Repo.insert!(Player.changeset(%Player{}, attrs))
+              {:error, reason} -> Repo.rollback(reason)
+            end
+        end
+
+      link_player!(player.id, provider, external_id)
+      player
+    end)
+    |> unwrap_transaction()
+  end
+
   defp update_team(team, provider, external_id, attrs) do
     attrs = attrs |> Map.delete(:name) |> Map.put(legacy_team_id_field(provider), external_id)
     Repo.update!(Team.changeset(team, attrs))
@@ -130,6 +159,28 @@ defmodule FootballBackend.Football.ProviderMappings do
       [team] -> {:ok, team}
       _ -> {:error, {:ambiguous_team_name, name, Enum.map(matches, & &1.id)}}
     end
+  end
+
+  defp find_player_by_name_and_team(name, team_id) do
+    normalized = normalize_person_name(name)
+
+    matches =
+      Repo.all(from p in Player, where: p.team_id == ^team_id, select: p)
+      |> Enum.filter(&(normalize_person_name(&1.name) == normalized))
+
+    case matches do
+      [] -> {:ok, nil}
+      [player] -> {:ok, player}
+      _ -> {:error, {:ambiguous_player_name, name, team_id, Enum.map(matches, & &1.id)}}
+    end
+  end
+
+  defp normalize_person_name(name) do
+    name
+    |> String.downcase()
+    |> String.replace(~r/[^[:alnum:]]/u, " ")
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
   end
 
   defp canonical_team_key(name) do
@@ -205,6 +256,21 @@ defmodule FootballBackend.Football.ProviderMappings do
       true ->
         attrs = %{match_id: match_id, provider: provider, external_id: external_id}
         Repo.insert!(MatchProviderId.changeset(%MatchProviderId{}, attrs))
+    end
+  end
+
+  defp link_player!(player_id, provider, external_id) do
+    mapping = Repo.get_by(PlayerProviderId, provider: provider, external_id: external_id)
+    player_mapping = Repo.get_by(PlayerProviderId, player_id: player_id, provider: provider)
+
+    cond do
+      mapping && mapping.player_id != player_id -> Repo.rollback({:player_provider_id_conflict, provider, external_id})
+      player_mapping && player_mapping.external_id != external_id -> Repo.rollback({:player_has_multiple_provider_ids, provider, player_id})
+      mapping -> mapping
+      player_mapping -> player_mapping
+      true ->
+        attrs = %{player_id: player_id, provider: provider, external_id: external_id}
+        Repo.insert!(PlayerProviderId.changeset(%PlayerProviderId{}, attrs))
     end
   end
 

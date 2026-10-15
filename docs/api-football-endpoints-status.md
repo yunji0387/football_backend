@@ -34,7 +34,7 @@ This inventory is based on [`api-football-reference.md`](api-football-reference.
 | `GET /players` | Player profiles and season statistics | Not implemented | Player data was deferred from the first version. |
 | `GET /players/squads` | Current squad members for a team | Not implemented | Player data was deferred from the first version. |
 | `GET /players/teams` | Teams associated with a player | Not implemented | Player data was deferred from the first version. |
-| `GET /players/topscorers` | League top scorers | Not implemented | Player data was deferred from the first version. |
+| `GET /players/topscorers` | League top scorers | **Implemented** | Synced as provider-specific player season statistics; exposed by `GET /api/scorers`. |
 | `GET /players/topassists` | League top assists | Not implemented | Player data was deferred from the first version. |
 | `GET /players/topyellowcards` | Players with the most yellow cards | Not implemented | Player data was deferred from the first version. |
 | `GET /players/topredcards` | Players with the most red cards | Not implemented | Player data was deferred from the first version. |
@@ -50,4 +50,4 @@ This inventory is based on [`api-football-reference.md`](api-football-reference.
 
 ## Current sync scope
 
-The scheduled sync calls `GET /teams`, `GET /fixtures`, `GET /standings`, `GET /teams/statistics`, `GET /fixtures/rounds`, `GET /fixtures/events`, `GET /fixtures/lineups`, and `GET /fixtures/statistics` for the configured league and season. Round and team statistics snapshots are cached for 24 hours. Match detail calls are limited to three candidate fixtures per sync, with endpoint-specific caching, to control API usage. It does not fetch player data. The app's local `/api/players` CRUD routes are separate and do not mean API-Football player endpoints are integrated.
+The scheduled sync calls `GET /teams`, `GET /fixtures`, `GET /standings`, `GET /players/topscorers`, `GET /teams/statistics`, `GET /fixtures/rounds`, `GET /fixtures/events`, `GET /fixtures/lineups`, and `GET /fixtures/statistics` for the configured league and season. Round, team statistics, and scorer records are cached in PostgreSQL. Match detail calls are limited to three candidate fixtures per sync, with endpoint-specific caching, to control API usage. Full player profiles and fixture player performance endpoints are not fetched. The app's local `/api/players` CRUD routes remain separate from the new league scorer feed.

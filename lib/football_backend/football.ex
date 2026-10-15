@@ -108,6 +108,7 @@ defmodule FootballBackend.Football do
          :ok <- sync_fixture_details(fixtures, league_id, season),
          {:ok, tables} <- fetch_all("standings", league: league_id, season: season),
          :ok <- save_standings(tables, league_id, season) do
+      sync_top_scorers(league_id, season)
       Logger.info("API-Football sync completed for league #{league_id}, season #{season}")
       :ok
     else
@@ -122,6 +123,46 @@ defmodule FootballBackend.Football do
   def configured_league_id do
     competition = Application.get_env(:football_backend, __MODULE__, []) |> Keyword.get(:football_competition, "PL")
     Map.fetch!(@api_football_league_ids, competition)
+  end
+
+  defp sync_top_scorers(league_id, season) do
+    case fetch_all("players/topscorers", league: league_id, season: season) do
+      {:ok, rows} ->
+        scorers =
+          Enum.flat_map(rows, fn row ->
+            player = row["player"] || %{}
+
+            Enum.map(row["statistics"] || [], fn statistics ->
+              team = statistics["team"] || %{}
+              games = statistics["games"] || %{}
+              goals = statistics["goals"] || %{}
+              shots = statistics["shots"] || %{}
+              cards = statistics["cards"] || %{}
+
+              %{
+                external_id: player["id"],
+                player: %{name: player["name"], position: games["position"], jersey_number: player["number"]},
+                team: %{external_id: team["id"], name: team["name"], logo: team["logo"], country: "England"},
+                statistics: %{
+                  appearances: games["appearences"] || games["appearances"],
+                  lineups: games["lineups"], minutes: games["minutes"], goals: goals["total"] || 0,
+                  assists: goals["assists"], penalties: goals["penalty"], shots: shots["total"],
+                  shots_on_target: shots["on"], yellow_cards: cards["yellow"], red_cards: cards["red"],
+                  rating: games["rating"]
+                },
+                provider_data: statistics
+              }
+            end)
+          end)
+          |> Enum.filter(&is_integer(&1.external_id))
+
+        case FootballBackend.Players.import_provider_scorers("api_football", league_id, season, scorers) do
+          :ok -> Logger.info("API-Football top scorers synced")
+          {:error, reason} -> Logger.warning("API-Football top scorers were not fully synced: #{inspect(reason)}")
+        end
+
+      {:error, reason} -> Logger.warning("API-Football top scorers unavailable: #{inspect(reason)}")
+    end
   end
 
   defp api_key, do: Application.get_env(:football_backend, __MODULE__, []) |> Keyword.get(:api_key)
@@ -355,7 +396,7 @@ defmodule FootballBackend.Football do
            {:ok, played_at, _} <- DateTime.from_iso8601(fixture["date"]) do
         attrs = %{league_id: league_id, season: season,
           home_team_id: home_id, away_team_id: away_id, played_at: played_at,
-          home_score: goals["home"] || 0, away_score: goals["away"] || 0,
+          home_score: goals["home"], away_score: goals["away"],
           status: fixture["status"]["short"], elapsed: fixture["status"]["elapsed"], round: fixture["round"]}
 
         case ProviderMappings.upsert_match("api_football", fixture["id"], attrs) do

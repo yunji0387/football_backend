@@ -4,8 +4,8 @@ defmodule FootballBackend.Matches.Match do
 
   schema "matches" do
     field :played_at, :utc_datetime
-    field :home_score, :integer, default: 0
-    field :away_score, :integer, default: 0
+    field :home_score, :integer
+    field :away_score, :integer
     field :api_football_id, :integer
     field :football_data_id, :integer
     field :league_id, :integer, default: 39
