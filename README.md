@@ -95,3 +95,5 @@ If the primary API-Football sync fails, the backend attempts a football-data.org
 Set `FOOTBALL_DATA_TOKEN` in `.env` to enable the backup provider. Both providers follow `FOOTBALL_SEASON` (default `2024`) and `FOOTBALL_COMPETITION` (default `PL`). Database changes are applied by the existing migration workflow on app startup.
 
 Provider ID mapping and deduplication behavior is documented in [Data source identity and deduplication](docs/data-source-mapping.md).
+
+For provider endpoint and response-field comparisons, see the [API-Football reference](docs/api-football-reference.md) and the [football-data.org v4 reference](docs/football-data-reference.md).
