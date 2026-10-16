@@ -19,7 +19,8 @@ defmodule FootballBackend.Players do
       Enum.find(providers, fn source ->
         Repo.one(
           from stat in PlayerSeasonStat,
-            where: stat.provider == ^source and stat.league_id == ^league_id and stat.season == ^season,
+            where:
+              stat.provider == ^source and stat.league_id == ^league_id and stat.season == ^season,
             select: count(stat.id)
         ) > 0
       end)
@@ -30,7 +31,9 @@ defmodule FootballBackend.Players do
           from stat in PlayerSeasonStat,
             join: player in assoc(stat, :player),
             join: team in assoc(stat, :team),
-            where: stat.provider == ^provider and stat.league_id == ^league_id and stat.season == ^season,
+            where:
+              stat.provider == ^provider and stat.league_id == ^league_id and
+                stat.season == ^season,
             order_by: [desc: stat.goals, desc_nulls_last: stat.assists, asc: player.name],
             select: %{
               player_id: player.id,
@@ -62,8 +65,9 @@ defmodule FootballBackend.Players do
     %{source: provider, league_id: league_id, season: season, data: rows}
   end
 
-  def import_provider_season_stats(provider, league_id, season, rows) do
-    fetched_at = DateTime.utc_now() |> DateTime.truncate(:second)
+  def import_provider_season_stats(provider, league_id, season, rows, opts \\ []) do
+    fetched_at = Keyword.get(opts, :fetched_at, DateTime.utc_now() |> DateTime.truncate(:second))
+    complete? = Keyword.get(opts, :complete, true)
 
     result =
       Enum.reduce_while(rows, :ok, fn row, :ok ->
@@ -72,20 +76,30 @@ defmodule FootballBackend.Players do
         with team_external_id when is_integer(team_external_id) <- team_data.external_id,
              player_external_id when is_integer(player_external_id) <- row.external_id,
              {:ok, team} <- provider_team(provider, team_external_id, team_data),
-             {:ok, player} <- ProviderMappings.upsert_player(provider, player_external_id, Map.merge(row.player, %{team_id: team.id})) do
-          attrs = Map.merge(row.statistics, %{
-            provider: provider,
-            league_id: league_id,
-            season: season,
-            player_id: player.id,
-            team_id: team.id,
-            provider_data: row.provider_data,
-            fetched_at: fetched_at
-          })
+             {:ok, player} <-
+               ProviderMappings.upsert_player(
+                 provider,
+                 player_external_id,
+                 Map.merge(row.player, %{team_id: team.id})
+               ) do
+          attrs =
+            Map.merge(row.statistics, %{
+              provider: provider,
+              league_id: league_id,
+              season: season,
+              player_id: player.id,
+              team_id: team.id,
+              provider_data: row.provider_data,
+              fetched_at: fetched_at
+            })
 
           case Repo.insert(PlayerSeasonStat.changeset(%PlayerSeasonStat{}, attrs),
-                 on_conflict: {:replace, Map.keys(attrs) -- [:provider, :league_id, :season, :player_id, :team_id] ++ [:updated_at]},
-                 conflict_target: [:provider, :league_id, :season, :player_id, :team_id]) do
+                 on_conflict:
+                   {:replace,
+                    Map.keys(attrs) --
+                      ([:provider, :league_id, :season, :player_id, :team_id] ++ [:updated_at])},
+                 conflict_target: [:provider, :league_id, :season, :player_id, :team_id]
+               ) do
             {:ok, _stat} -> {:cont, :ok}
             {:error, reason} -> {:halt, {:error, reason}}
           end
@@ -95,19 +109,36 @@ defmodule FootballBackend.Players do
       end)
 
     case result do
-      :ok ->
+      :ok when complete? ->
         Repo.delete_all(
           from stat in PlayerSeasonStat,
-            where: stat.provider == ^provider and stat.league_id == ^league_id and stat.season == ^season,
+            where:
+              stat.provider == ^provider and stat.league_id == ^league_id and
+                stat.season == ^season,
             where: stat.fetched_at < ^fetched_at
         )
 
         :ok
 
-      error -> error
+      :ok ->
+        :ok
+
+      error ->
+        error
     end
   rescue
     error -> {:error, {:provider_scorer_persistence, Exception.message(error)}}
+  end
+
+  def finish_provider_season_stats_import(provider, league_id, season, started_at) do
+    Repo.delete_all(
+      from stat in PlayerSeasonStat,
+        where:
+          stat.provider == ^provider and stat.league_id == ^league_id and stat.season == ^season,
+        where: stat.fetched_at < ^started_at
+    )
+
+    :ok
   end
 
   defp provider_team(provider, external_id, team_data) do

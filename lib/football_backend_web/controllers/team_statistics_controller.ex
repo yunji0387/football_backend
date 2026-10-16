@@ -7,7 +7,9 @@ defmodule FootballBackendWeb.TeamStatisticsController do
       season = parse_positive_integer(params["season"], FootballBackend.Football.current_season())
 
       case FootballBackend.Football.team_statistics(team_id, league_id, season) do
-        nil -> conn |> put_status(:not_found) |> json(%{error: "Team statistics are not available for this team and season"})
+        nil ->
+          FootballBackend.Football.SyncWorker.request_sync(league_id, season)
+          conn |> put_status(:not_found) |> json(%{error: "Team statistics are not available for this team and season; a background sync was queued"})
         statistics -> json(conn, %{data: statistics, league_id: league_id, season: season})
       end
     else

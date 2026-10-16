@@ -9,6 +9,7 @@ defmodule FootballBackendWeb.Router do
     pipe_through :api
 
     get "/health", HealthController, :index
+    get "/sync/coverage", SyncCoverageController, :index
     get "/standings", StandingController, :index
     get "/scorers", ScorerController, :index
     get "/leaderboards/players", LeaderboardController, :players

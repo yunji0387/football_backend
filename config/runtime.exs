@@ -2,7 +2,9 @@ import Config
 
 season_override =
   case System.get_env("FOOTBALL_SEASON") do
-    nil -> nil
+    nil ->
+      nil
+
     value ->
       case Integer.parse(value) do
         {season, ""} when season > 0 -> season
@@ -13,6 +15,8 @@ season_override =
 config :football_backend, FootballBackend.Football,
   api_key: System.get_env("API_SPORT_FOOTBALL_API_KEY"),
   football_data_token: System.get_env("FOOTBALL_DATA_TOKEN"),
+  telegram_bot_token: System.get_env("TELEGRAM_BOT_TOKEN"),
+  telegram_chat_id: System.get_env("TELEGRAM_CHAT_ID"),
   football_competition: System.get_env("FOOTBALL_COMPETITION", "PL"),
   season_override: season_override
 

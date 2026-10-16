@@ -202,3 +202,13 @@ football-data.org match data is also selectively unfolded: deeper fields such as
 ## Backend implementation note
 
 The current football-data adapter requests competition matches and standings, extracts teams from those responses, maps provider IDs to canonical teams/matches, and imports the `TOTAL` standings table. It does not currently request `/competitions/{code}/teams`, scorer lists, person details, match unfolding headers, or API-Football-style fixture statistics/events/lineups. For identity and duplicate handling, follow [`data-source-mapping.md`](data-source-mapping.md).
+
+
+## Request size and quota visibility
+
+Successful football-data.org responses are logged with the endpoint path and the
+number of returned matches, scorers, teams, or standings rows. When present, the
+log also includes X-RequestsAvailable (remaining requests) and
+X-RequestCounter-Reset (seconds until the counter resets). These values show
+response sizes and the provider's current request budget without logging the
+authentication token.

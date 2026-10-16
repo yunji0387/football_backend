@@ -9,12 +9,13 @@ defmodule FootballBackend.Football.FootballData do
   @base_url ~c"https://api.football-data.org/v4"
   @min_interval_ms 6_100
 
-  def sync do
+  def sync(
+        league_id \\ FootballBackend.Football.configured_league_id(),
+        season \\ FootballBackend.Football.current_season()
+      ) do
     config = Application.get_env(:football_backend, FootballBackend.Football, [])
     token = Keyword.get(config, :football_data_token)
     competition = Keyword.get(config, :football_competition, "PL")
-    league_id = FootballBackend.Football.configured_league_id()
-    season = FootballBackend.Football.current_season()
 
     with token when is_binary(token) and token != "" <- token,
          {:ok, matches} <- get("competitions/#{competition}/matches?season=#{season}", token),
@@ -40,25 +41,55 @@ defmodule FootballBackend.Football.FootballData do
 
             %{
               external_id: player["id"],
-              player: %{name: player["name"], position: player["position"], jersey_number: player["shirtNumber"]},
-              team: %{external_id: team["id"], name: team["name"], logo: team["crest"], country: "England"},
+              player: %{
+                name: player["name"],
+                position: player["position"],
+                jersey_number: player["shirtNumber"]
+              },
+              team: %{
+                external_id: team["id"],
+                name: team["name"],
+                logo: team["crest"],
+                country: "England"
+              },
               statistics: %{
-                appearances: row["playedMatches"], lineups: nil, minutes: nil,
-                goals: row["goals"] || 0, assists: row["assists"], penalties: row["penalties"],
-                shots: nil, shots_on_target: nil, yellow_cards: nil, red_cards: nil, rating: nil
+                appearances: row["playedMatches"],
+                lineups: nil,
+                minutes: nil,
+                goals: row["goals"] || 0,
+                assists: row["assists"],
+                penalties: row["penalties"],
+                shots: nil,
+                shots_on_target: nil,
+                yellow_cards: nil,
+                red_cards: nil,
+                rating: nil
               },
               provider_data: row
             }
           end)
           |> Enum.filter(&is_integer(&1.external_id))
 
-        case FootballBackend.Players.import_provider_season_stats("football_data", league_id, season, scorers) do
-          :ok -> Logger.info("football-data.org top scorers synced")
-          {:error, reason} -> Logger.warning("football-data.org top scorers were not fully synced: #{inspect(reason)}")
+        case FootballBackend.Players.import_provider_season_stats(
+               "football_data",
+               league_id,
+               season,
+               scorers
+             ) do
+          :ok ->
+            Logger.info("football-data.org top scorers synced")
+
+          {:error, reason} ->
+            Logger.warning(
+              "football-data.org top scorers were not fully synced: #{inspect(reason)}"
+            )
         end
 
-      {:ok, _response} -> Logger.warning("football-data.org scorer response is missing scorer data")
-      {:error, reason} -> Logger.warning("football-data.org top scorers unavailable: #{inspect(reason)}")
+      {:ok, _response} ->
+        Logger.warning("football-data.org scorer response is missing scorer data")
+
+      {:error, reason} ->
+        Logger.warning("football-data.org top scorers unavailable: #{inspect(reason)}")
     end
   end
 
@@ -67,10 +98,50 @@ defmodule FootballBackend.Football.FootballData do
     headers = [{~c"X-Auth-Token", String.to_charlist(token)}]
 
     case rate_limited_request(url, headers) do
-      {:ok, {{_, 200, _}, _, body}} -> Jason.decode(body)
-      {:ok, {{_, status, _}, _, body}} -> {:error, {:football_data_http_status, status, body}}
-      {:error, reason} -> {:error, {:football_data_http_error, reason}}
+      {:ok, {{_, 200, _}, response_headers, body}} ->
+        case Jason.decode(body) do
+          {:ok, decoded} = result ->
+            Logger.info(
+              "football-data.org response endpoint=#{path |> String.split("?") |> hd()} " <>
+                "items=#{response_item_count(decoded)} " <>
+                "requests_remaining=#{response_header(response_headers, "x-requestsavailable") || "unknown"} " <>
+                "reset_seconds=#{response_header(response_headers, "x-requestcounter-reset") || "unknown"}"
+            )
+
+            result
+
+          error ->
+            error
+        end
+
+      {:ok, {{_, status, _}, _, body}} ->
+        {:error, {:football_data_http_status, status, body}}
+
+      {:error, reason} ->
+        {:error, {:football_data_http_error, reason}}
     end
+  end
+
+  defp response_item_count(response) do
+    Enum.find_value(["matches", "scorers", "teams"], fn key ->
+      case Map.get(response, key) do
+        rows when is_list(rows) -> length(rows)
+        _ -> nil
+      end
+    end) ||
+      case Map.get(response, "standings") do
+        standings when is_list(standings) ->
+          standings |> Enum.flat_map(&(Map.get(&1, "table") || [])) |> length()
+
+        _ ->
+          0
+      end
+  end
+
+  defp response_header(headers, wanted_name) do
+    Enum.find_value(headers, fn {name, value} ->
+      if String.downcase(to_string(name)) == wanted_name, do: to_string(value)
+    end)
   end
 
   defp rate_limited_request(url, headers) do
@@ -85,7 +156,11 @@ defmodule FootballBackend.Football.FootballData do
         last -> Process.sleep(max(@min_interval_ms - (now - last), 0))
       end
 
-      response = :httpc.request(:get, {url, headers}, [timeout: 20_000, connect_timeout: 10_000], [body_format: :binary])
+      response =
+        :httpc.request(:get, {url, headers}, [timeout: 20_000, connect_timeout: 10_000],
+          body_format: :binary
+        )
+
       :persistent_term.put(last_key, System.monotonic_time(:millisecond))
       response
     end)
@@ -94,7 +169,10 @@ defmodule FootballBackend.Football.FootballData do
   defp save_matches(%{"matches" => matches}, standings, league_id, season) do
     team_rows =
       Enum.flat_map(matches, &[&1["homeTeam"], &1["awayTeam"]]) ++
-        Enum.flat_map(standings["standings"] || [], &Enum.map(&1["table"] || [], fn row -> row["team"] end))
+        Enum.flat_map(
+          standings["standings"] || [],
+          &Enum.map(&1["table"] || [], fn row -> row["team"] end)
+        )
 
     with {:ok, teams} <- upsert_teams(team_rows),
          :ok <- upsert_matches(matches, teams, league_id, season) do
@@ -112,7 +190,8 @@ defmodule FootballBackend.Football.FootballData do
     |> Enum.uniq_by(& &1["id"])
     |> Enum.reduce_while({:ok, %{}}, fn team_data, {:ok, team_ids} ->
       attrs = %{
-        name: team_data["name"], country: get_in(team_data, ["area", "name"]) || "Unknown",
+        name: team_data["name"],
+        country: get_in(team_data, ["area", "name"]) || "Unknown",
         logo: team_data["crest"]
       }
 
@@ -133,9 +212,15 @@ defmodule FootballBackend.Football.FootballData do
            away_id when not is_nil(away_id) <- teams[away["id"]],
            {:ok, played_at, _} <- DateTime.from_iso8601(row["utcDate"]) do
         attrs = %{
-          league_id: league_id, season: season, home_team_id: home_id, away_team_id: away_id,
-          played_at: played_at, home_score: score["home"], away_score: score["away"],
-          status: normalize_status(row["status"]), elapsed: nil,
+          league_id: league_id,
+          season: season,
+          home_team_id: home_id,
+          away_team_id: away_id,
+          played_at: played_at,
+          home_score: score["home"],
+          away_score: score["away"],
+          status: normalize_status(row["status"]),
+          elapsed: nil,
           round: if(row["matchday"], do: "Matchday #{row["matchday"]}", else: row["stage"])
         }
 
@@ -153,31 +238,64 @@ defmodule FootballBackend.Football.FootballData do
     tables
     |> Enum.find(&(&1["type"] == "TOTAL"))
     |> case do
-      nil -> :ok
+      nil ->
+        :ok
+
       table ->
         Enum.each(table["table"] || [], fn row ->
           team_id = ProviderMappings.get_team_id("football_data", get_in(row, ["team", "id"]))
+
           if team_id do
-            attrs = %{league_id: league_id, season: season, team_id: team_id, rank: row["position"],
-              points: row["points"], goals_diff: row["goalDifference"], played: row["playedGames"],
-              win: row["won"], draw: row["draw"], lose: row["lost"], goals_for: row["goalsFor"],
-              goals_against: row["goalsAgainst"], form: row["form"]}
-            Repo.insert!(Standing.changeset(%Standing{}, attrs), on_conflict: {:replace, Map.keys(attrs) -- [:league_id, :season, :team_id] ++ [:updated_at]}, conflict_target: [:league_id, :season, :team_id])
+            attrs = %{
+              league_id: league_id,
+              season: season,
+              team_id: team_id,
+              rank: row["position"],
+              points: row["points"],
+              goals_diff: row["goalDifference"],
+              played: row["playedGames"],
+              win: row["won"],
+              draw: row["draw"],
+              lose: row["lost"],
+              goals_for: row["goalsFor"],
+              goals_against: row["goalsAgainst"],
+              form: row["form"]
+            }
+
+            Repo.insert!(Standing.changeset(%Standing{}, attrs),
+              on_conflict:
+                {:replace, Map.keys(attrs) -- ([:league_id, :season, :team_id] ++ [:updated_at])},
+              conflict_target: [:league_id, :season, :team_id]
+            )
 
             stat_attrs = %{
-              provider: "football_data", league_id: league_id, season: season, team_id: team_id,
-              played: row["playedGames"], wins: row["won"], draws: row["draw"], losses: row["lost"],
-              goals_for: row["goalsFor"], goals_against: row["goalsAgainst"], clean_sheets: nil,
-              passes: nil, key_passes: nil, provider_data: row,
+              provider: "football_data",
+              league_id: league_id,
+              season: season,
+              team_id: team_id,
+              played: row["playedGames"],
+              wins: row["won"],
+              draws: row["draw"],
+              losses: row["lost"],
+              goals_for: row["goalsFor"],
+              goals_against: row["goalsAgainst"],
+              clean_sheets: nil,
+              passes: nil,
+              key_passes: nil,
+              provider_data: row,
               fetched_at: DateTime.utc_now() |> DateTime.truncate(:second)
             }
 
             Repo.insert!(TeamSeasonStat.changeset(%TeamSeasonStat{}, stat_attrs),
-              on_conflict: {:replace, Map.keys(stat_attrs) -- [:provider, :league_id, :season, :team_id] ++ [:updated_at]},
+              on_conflict:
+                {:replace,
+                 Map.keys(stat_attrs) --
+                   ([:provider, :league_id, :season, :team_id] ++ [:updated_at])},
               conflict_target: [:provider, :league_id, :season, :team_id]
             )
           end
         end)
+
         :ok
     end
   rescue

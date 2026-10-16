@@ -56,11 +56,16 @@ The password is the local development default from `docker-compose.yml`. If pgAd
 
 ## API-Football sync
 
-The backend syncs Premier League teams, fixtures/scores, standings, player season statistics, team statistics, fixture rounds, and selected fixture events, lineups, and statistics into PostgreSQL. Full player profiles and per-fixture player performances are not fetched. The sync runs one minute after startup and every six hours after that. Round, player season, and team statistics data is cached for 24 hours, and match detail calls are capped at three candidate fixtures per sync. API requests are spaced to stay within the free plan's per-minute limit; monitor the API's daily quota in the dashboard, especially when syncing fixture pages.
+The backend syncs Premier League teams, fixtures/scores, standings, player season statistics, team statistics, fixture rounds, and selected fixture events, lineups, and statistics into PostgreSQL. Full player profiles and per-fixture player performances are not fetched. The sync runs one minute after startup and every six hours after that. Round, player season, and team statistics data is cached for 24 hours, and match detail calls are capped at three candidate fixtures per sync. API requests are spaced to stay within the free plan's per-minute limit. Sync logs include each completed endpoint's returned item count, page count, and API-Football remaining daily and per-minute request quotas. For example, the player season-statistics entry reports the combined player count across pages.
 
 Set `API_SPORT_FOOTBALL_API_KEY` in the project `.env` file. Docker Compose passes it to the app container; never commit the key. Both data providers use the shared `FOOTBALL_SEASON` and `FOOTBALL_COMPETITION` settings. The season defaults to the current season and can be overridden explicitly; the competition defaults to `PL` (Premier League), which API-Football maps to league ID 39. `FOOTBALL_DATA_TOKEN` is only needed for the backup provider.
 
 The existing `/api/teams` and `/api/matches` endpoints include synced records. Standings, rounds, and top scorers are available from `/api/standings`, `/api/rounds`, and `/api/scorers`; omitting `league_id` and `season` selects the configured league and current season. Player and team leaderboards are available at `/api/leaderboards/players` and `/api/leaderboards/teams`; pass a `metric` such as `goals`, `assists`, `passes`, `key_passes`, or `clean_sheets`. Team statistics are available at `/api/teams/:id/statistics`, where `:id` is the local database team ID. Fixture details are available at `/api/matches/:id/details`, where `:id` is the local database match ID. The sync does not make API-Football calls when the key is missing.
+
+Sync coverage counts, resumable player-page progress, historical backfill commands, and optional Telegram progress notifications are described in [sync operations](docs/sync-operations.md).
+
+For provisioning a private Ubuntu server, keeping the Compose service available,
+and running or monitoring syncs, see the [Ubuntu server setup guide](docs/ubuntu-server-setup.md).
 
 Example:
 

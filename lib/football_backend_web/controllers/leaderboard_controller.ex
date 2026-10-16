@@ -12,14 +12,22 @@ defmodule FootballBackendWeb.LeaderboardController do
 
   defp index(conn, params, board, metrics) do
     with {:ok, metric} <- parse_metric(params["metric"], metrics),
-         {:ok, league_id} <- parse_positive_integer(params["league_id"], FootballBackend.Football.configured_league_id()),
-         {:ok, season} <- parse_positive_integer(params["season"], FootballBackend.Football.current_season()),
+         {:ok, league_id} <-
+           parse_positive_integer(
+             params["league_id"],
+             FootballBackend.Football.configured_league_id()
+           ),
+         {:ok, season} <-
+           parse_positive_integer(params["season"], FootballBackend.Football.current_season()),
          {:ok, limit} <- parse_limit(params["limit"]) do
       result =
         case board do
           :players -> Leaderboards.players(league_id, season, String.to_atom(metric), limit)
           :teams -> Leaderboards.teams(league_id, season, String.to_atom(metric), limit)
         end
+
+      if is_nil(result.source),
+        do: FootballBackend.Football.SyncWorker.request_sync(league_id, season)
 
       json(conn, result)
     else

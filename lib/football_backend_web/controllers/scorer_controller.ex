@@ -4,11 +4,24 @@ defmodule FootballBackendWeb.ScorerController do
   alias FootballBackend.Players
 
   def index(conn, params) do
-    with {:ok, league_id} <- parse_positive_integer(params["league_id"], FootballBackend.Football.configured_league_id()),
-         {:ok, season} <- parse_positive_integer(params["season"], FootballBackend.Football.current_season()) do
-      json(conn, Players.top_scorers(league_id, season))
+    with {:ok, league_id} <-
+           parse_positive_integer(
+             params["league_id"],
+             FootballBackend.Football.configured_league_id()
+           ),
+         {:ok, season} <-
+           parse_positive_integer(params["season"], FootballBackend.Football.current_season()) do
+      result = Players.top_scorers(league_id, season)
+
+      if is_nil(result.source),
+        do: FootballBackend.Football.SyncWorker.request_sync(league_id, season)
+
+      json(conn, result)
     else
-      :error -> conn |> put_status(:bad_request) |> json(%{error: "league_id and season must be positive integers"})
+      :error ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "league_id and season must be positive integers"})
     end
   end
 

@@ -1,0 +1,33 @@
+defmodule FootballBackendWeb.SyncCoverageController do
+  use FootballBackendWeb, :controller
+
+  alias FootballBackend.Football.SyncRuns
+
+  def index(conn, params) do
+    with {:ok, league_id} <-
+           parse_positive_integer(
+             params["league_id"],
+             FootballBackend.Football.configured_league_id()
+           ),
+         {:ok, season} <-
+           parse_positive_integer(params["season"], FootballBackend.Football.current_season()) do
+      json(conn, SyncRuns.coverage(league_id, season))
+    else
+      :error ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "league_id and season must be positive integers"})
+    end
+  end
+
+  defp parse_positive_integer(nil, default), do: {:ok, default}
+
+  defp parse_positive_integer(value, _default) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer > 0 -> {:ok, integer}
+      _ -> :error
+    end
+  end
+
+  defp parse_positive_integer(_, _default), do: :error
+end
