@@ -49,6 +49,19 @@ Provider fallback behavior must be explicit. A secondary provider should fill mi
 - Enforce uniqueness and other durable invariants in PostgreSQL as well as in application code.
 - Consider transaction boundaries and concurrent ingestion when inserting an entity and its provider mapping.
 
+## Implementation documentation
+
+Record important implementation details in repository Markdown as part of the same change. Update the existing document closest to the behavior, such as the README, API endpoint inventory, provider reference, data-source mapping, or operational guide. For substantial changes without a suitable home, add a focused document and link it from the README or relevant index.
+
+Document durable information that a future maintainer or API consumer needs, including:
+
+- New or changed API routes, parameters, response fields, validation, and examples.
+- Data model changes, provider mappings, source precedence, sync behavior, and idempotency rules.
+- Configuration defaults and overrides, provider coverage or quota limits, known gaps, and operational or migration steps.
+- Important design decisions and their practical consequences.
+
+Keep documentation aligned with the implemented behavior. Do not rely on chat history, commit messages, or code comments as the only record of an important decision. Avoid creating or changing documentation for routine edits that do not affect durable behavior.
+
 ## Implementation checklist
 
 - [ ] Route and HTTP contract are clear and documented.
@@ -57,6 +70,6 @@ Provider fallback behavior must be explicit. A secondary provider should fill mi
 - [ ] Schema/changeset and database constraints enforce valid, unique data.
 - [ ] JSON response exposes local IDs and only intended fields.
 - [ ] Provider ingestion checks mappings before inserting and handles ambiguous identity safely.
-- [ ] Relevant endpoint inventory, README, and provider mapping documentation are updated.
+- [ ] Relevant Markdown documentation records important behavior, decisions, configuration, limitations, and operational steps.
 - [ ] Tests are added or updated for input validation, status codes, and persistence behavior. Provider work also covers idempotent re-imports, one canonical entity associated with multiple provider IDs, and ambiguous matches.
 
