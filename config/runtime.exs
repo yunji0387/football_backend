@@ -1,9 +1,13 @@
 import Config
 
 season_override =
-  case Integer.parse(System.get_env("FOOTBALL_SEASON", "2024")) do
-    {season, ""} when season > 0 -> season
-    _ -> nil
+  case System.get_env("FOOTBALL_SEASON") do
+    nil -> nil
+    value ->
+      case Integer.parse(value) do
+        {season, ""} when season > 0 -> season
+        _ -> nil
+      end
   end
 
 config :football_backend, FootballBackend.Football,

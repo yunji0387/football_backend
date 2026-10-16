@@ -3,6 +3,7 @@ defmodule FootballBackend.Football.FootballData do
   require Logger
   alias FootballBackend.Repo
   alias FootballBackend.Football.Standing
+  alias FootballBackend.Football.TeamSeasonStat
   alias FootballBackend.Football.ProviderMappings
 
   @base_url ~c"https://api.football-data.org/v4"
@@ -51,7 +52,7 @@ defmodule FootballBackend.Football.FootballData do
           end)
           |> Enum.filter(&is_integer(&1.external_id))
 
-        case FootballBackend.Players.import_provider_scorers("football_data", league_id, season, scorers) do
+        case FootballBackend.Players.import_provider_season_stats("football_data", league_id, season, scorers) do
           :ok -> Logger.info("football-data.org top scorers synced")
           {:error, reason} -> Logger.warning("football-data.org top scorers were not fully synced: #{inspect(reason)}")
         end
@@ -162,6 +163,19 @@ defmodule FootballBackend.Football.FootballData do
               win: row["won"], draw: row["draw"], lose: row["lost"], goals_for: row["goalsFor"],
               goals_against: row["goalsAgainst"], form: row["form"]}
             Repo.insert!(Standing.changeset(%Standing{}, attrs), on_conflict: {:replace, Map.keys(attrs) -- [:league_id, :season, :team_id] ++ [:updated_at]}, conflict_target: [:league_id, :season, :team_id])
+
+            stat_attrs = %{
+              provider: "football_data", league_id: league_id, season: season, team_id: team_id,
+              played: row["playedGames"], wins: row["won"], draws: row["draw"], losses: row["lost"],
+              goals_for: row["goalsFor"], goals_against: row["goalsAgainst"], clean_sheets: nil,
+              passes: nil, key_passes: nil, provider_data: row,
+              fetched_at: DateTime.utc_now() |> DateTime.truncate(:second)
+            }
+
+            Repo.insert!(TeamSeasonStat.changeset(%TeamSeasonStat{}, stat_attrs),
+              on_conflict: {:replace, Map.keys(stat_attrs) -- [:provider, :league_id, :season, :team_id] ++ [:updated_at]},
+              conflict_target: [:provider, :league_id, :season, :team_id]
+            )
           end
         end)
         :ok

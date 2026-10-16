@@ -7,6 +7,7 @@ defmodule FootballBackend.Football do
   alias FootballBackend.Football.Standing
   alias FootballBackend.Football.ProviderMappings
   alias FootballBackend.Football.ApiSnapshot
+  alias FootballBackend.Football.TeamSeasonStat
   alias FootballBackend.Matches.Match
 
   @base_url ~c"https://v3.football.api-sports.io"
@@ -108,7 +109,10 @@ defmodule FootballBackend.Football do
          :ok <- sync_fixture_details(fixtures, league_id, season),
          {:ok, tables} <- fetch_all("standings", league: league_id, season: season),
          :ok <- save_standings(tables, league_id, season) do
-      sync_top_scorers(league_id, season)
+      case sync_player_season_stats(league_id, season) do
+        :ok -> Logger.info("API-Football player season statistics synced")
+        {:error, reason} -> Logger.warning("API-Football player season statistics unavailable: #{inspect(reason)}")
+      end
       Logger.info("API-Football sync completed for league #{league_id}, season #{season}")
       :ok
     else
@@ -125,43 +129,56 @@ defmodule FootballBackend.Football do
     Map.fetch!(@api_football_league_ids, competition)
   end
 
-  defp sync_top_scorers(league_id, season) do
-    case fetch_all("players/topscorers", league: league_id, season: season) do
-      {:ok, rows} ->
-        scorers =
-          Enum.flat_map(rows, fn row ->
-            player = row["player"] || %{}
+  defp sync_player_season_stats(league_id, season) do
+    if fresh_snapshot?("players", league_id, season, "all", @season_cache_seconds) do
+      :ok
+    else
+      case fetch_all("players", league: league_id, season: season) do
+        {:ok, rows} ->
+          players =
+            Enum.flat_map(rows, fn row ->
+              player = row["player"] || %{}
 
-            Enum.map(row["statistics"] || [], fn statistics ->
-              team = statistics["team"] || %{}
-              games = statistics["games"] || %{}
-              goals = statistics["goals"] || %{}
-              shots = statistics["shots"] || %{}
-              cards = statistics["cards"] || %{}
+              Enum.map(row["statistics"] || [], fn statistics ->
+                team = statistics["team"] || %{}
+                games = statistics["games"] || %{}
+                goals = statistics["goals"] || %{}
+                shots = statistics["shots"] || %{}
+                passes = statistics["passes"] || %{}
+                cards = statistics["cards"] || %{}
 
-              %{
-                external_id: player["id"],
-                player: %{name: player["name"], position: games["position"], jersey_number: player["number"]},
-                team: %{external_id: team["id"], name: team["name"], logo: team["logo"], country: "England"},
-                statistics: %{
-                  appearances: games["appearences"] || games["appearances"],
-                  lineups: games["lineups"], minutes: games["minutes"], goals: goals["total"] || 0,
-                  assists: goals["assists"], penalties: goals["penalty"], shots: shots["total"],
-                  shots_on_target: shots["on"], yellow_cards: cards["yellow"], red_cards: cards["red"],
-                  rating: games["rating"]
-                },
-                provider_data: statistics
-              }
+                %{
+                  external_id: player["id"],
+                  player: %{name: player["name"], position: games["position"], jersey_number: player["number"]},
+                  team: %{external_id: team["id"], name: team["name"], logo: team["logo"], country: "England"},
+                  statistics: %{
+                    appearances: games["appearences"] || games["appearances"],
+                    lineups: games["lineups"], minutes: games["minutes"], goals: goals["total"] || 0,
+                    assists: goals["assists"], penalties: goals["penalty"], shots: shots["total"],
+                    shots_on_target: shots["on"], clean_sheets: nil, passes: passes["total"],
+                    key_passes: passes["key"], yellow_cards: cards["yellow"], red_cards: cards["red"],
+                    rating: games["rating"], player_profile: player,
+                    league_data: statistics["league"], team_data: team, games_data: games,
+                    substitutes_data: statistics["substitutes"], shots_data: statistics["shots"],
+                    goals_data: statistics["goals"], passes_data: passes,
+                    tackles_data: statistics["tackles"], duels_data: statistics["duels"],
+                    dribbles_data: statistics["dribbles"], fouls_data: statistics["fouls"],
+                    cards_data: cards, penalty_data: statistics["penalty"],
+                    offsides: statistics["offsides"]
+                  },
+                  provider_data: %{player: player, statistics: statistics}
+                }
+              end)
             end)
-          end)
-          |> Enum.filter(&is_integer(&1.external_id))
+            |> Enum.filter(&is_integer(&1.external_id))
 
-        case FootballBackend.Players.import_provider_scorers("api_football", league_id, season, scorers) do
-          :ok -> Logger.info("API-Football top scorers synced")
-          {:error, reason} -> Logger.warning("API-Football top scorers were not fully synced: #{inspect(reason)}")
-        end
+          case if(players == [], do: {:error, :empty_player_season_response}, else: FootballBackend.Players.import_provider_season_stats("api_football", league_id, season, players)) do
+            :ok -> save_snapshot("players", league_id, season, "all", %{count: length(players)})
+            {:error, reason} -> {:error, {:player_season_stats_persistence, reason}}
+          end
 
-      {:error, reason} -> Logger.warning("API-Football top scorers unavailable: #{inspect(reason)}")
+        {:error, reason} -> {:error, {:player_season_stats_fetch, reason}}
+      end
     end
   end
 
@@ -184,21 +201,72 @@ defmodule FootballBackend.Football do
     |> Enum.reduce_while(:ok, fn team_id, :ok ->
       resource_id = to_string(team_id)
 
-      if fresh_snapshot?("teams/statistics", league_id, season, resource_id, @season_cache_seconds) do
-        {:cont, :ok}
-      else
-        case fetch_all("teams/statistics", league: league_id, season: season, team: team_id) do
-          {:ok, rows} ->
-            case save_snapshot("teams/statistics", league_id, season, resource_id, rows) do
-              :ok -> {:cont, :ok}
-              error -> {:halt, error}
-            end
+      result =
+        if fresh_snapshot?("teams/statistics", league_id, season, resource_id, @season_cache_seconds) do
+          case Repo.get_by(ApiSnapshot, endpoint: "teams/statistics", league_id: league_id,
+                 season: season, resource_id: resource_id) do
+            nil -> :ok
+            snapshot -> persist_team_season_stats(team_id, league_id, season, List.first(snapshot.payload["data"] || []))
+          end
+        else
+          case fetch_all("teams/statistics", league: league_id, season: season, team: team_id) do
+            {:ok, rows} ->
+              with :ok <- save_snapshot("teams/statistics", league_id, season, resource_id, rows),
+                   :ok <- persist_team_season_stats(team_id, league_id, season, List.first(rows)) do
+                :ok
+              end
 
-          error -> {:halt, error}
+            error -> error
+          end
         end
+
+      case result do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
       end
     end)
   end
+
+  defp persist_team_season_stats(external_team_id, league_id, season, data) when is_map(data) do
+    case ProviderMappings.get_team_id("api_football", external_team_id) do
+      nil -> :ok
+      team_id ->
+        fixtures = data["fixtures"] || %{}
+        wins = fixtures["wins"] || %{}
+        draws = fixtures["draws"] || %{}
+        loses = fixtures["loses"] || %{}
+        goals = data["goals"] || %{}
+        goals_for = goals["for"] || %{}
+        goals_against = goals["against"] || %{}
+        clean_sheets = data["clean_sheet"] || %{}
+        existing = Repo.get_by(TeamSeasonStat, provider: "api_football", league_id: league_id,
+          season: season, team_id: team_id)
+        fetched_at = DateTime.utc_now() |> DateTime.truncate(:second)
+        attrs = %{
+          team_id: team_id, provider: "api_football", league_id: league_id, season: season,
+          played: get_in(fixtures, ["played", "total"]),
+          wins: wins["total"], draws: draws["total"], losses: loses["total"],
+          goals_for: goals_for["total"], goals_against: goals_against["total"],
+          clean_sheets: clean_sheets["total"], passes: existing && existing.passes,
+          key_passes: existing && existing.key_passes,
+          league_data: data["league"], team_data: data["team"],
+          fixtures_data: fixtures, goals_data: goals, biggest_data: data["biggest"],
+          clean_sheet_data: clean_sheets, failed_to_score_data: data["failed_to_score"],
+          penalty_data: data["penalty"], lineups_data: %{data: data["lineups"]},
+          cards_data: data["cards"], form: data["form"],
+          provider_data: data, fetched_at: fetched_at
+        }
+
+        case Repo.insert(TeamSeasonStat.changeset(%TeamSeasonStat{}, attrs),
+               on_conflict: {:replace, Map.keys(attrs) -- [:provider, :league_id, :season, :team_id] ++ [:updated_at]},
+               conflict_target: [:provider, :league_id, :season, :team_id]) do
+          {:ok, _stat} -> :ok
+          {:error, reason} -> {:error, {:team_season_stats_persistence, reason}}
+        end
+    end
+  end
+
+  defp persist_team_season_stats(_external_team_id, _league_id, _season, _data), do: :ok
 
   defp sync_fixture_details(fixtures, league_id, season) do
     now = DateTime.utc_now()

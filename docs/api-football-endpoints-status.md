@@ -31,11 +31,11 @@ This inventory is based on [`api-football-reference.md`](api-football-reference.
 | `GET /coachs` | Coaches and coach details | Not implemented | — |
 | `GET /players/seasons` | Seasons available for a player | Not implemented | Player data was deferred from the first version. |
 | `GET /players/profiles` | Player profiles | Not implemented | Player data was deferred from the first version. |
-| `GET /players` | Player profiles and season statistics | Not implemented | Player data was deferred from the first version. |
+| `GET /players` | Player profiles and season statistics | **Implemented** | Full league-season player statistics are paginated and imported to `player_season_stats`; cached daily. |
 | `GET /players/squads` | Current squad members for a team | Not implemented | Player data was deferred from the first version. |
 | `GET /players/teams` | Teams associated with a player | Not implemented | Player data was deferred from the first version. |
-| `GET /players/topscorers` | League top scorers | **Implemented** | Synced as provider-specific player season statistics; exposed by `GET /api/scorers`. |
-| `GET /players/topassists` | League top assists | Not implemented | Player data was deferred from the first version. |
+| `GET /players/topscorers` | League top scorers | Not called | `GET /api/scorers` and player goal/assist boards use the full season statistics imported through `GET /players`. |
+| `GET /players/topassists` | League top assists | Not called | Assists are read from full season statistics imported through `GET /players`. |
 | `GET /players/topyellowcards` | Players with the most yellow cards | Not implemented | Player data was deferred from the first version. |
 | `GET /players/topredcards` | Players with the most red cards | Not implemented | Player data was deferred from the first version. |
 | `GET /transfers` | Player transfer history | Not implemented | — |
@@ -50,4 +50,4 @@ This inventory is based on [`api-football-reference.md`](api-football-reference.
 
 ## Current sync scope
 
-The scheduled sync calls `GET /teams`, `GET /fixtures`, `GET /standings`, `GET /players/topscorers`, `GET /teams/statistics`, `GET /fixtures/rounds`, `GET /fixtures/events`, `GET /fixtures/lineups`, and `GET /fixtures/statistics` for the configured league and season. Round, team statistics, and scorer records are cached in PostgreSQL. Match detail calls are limited to three candidate fixtures per sync, with endpoint-specific caching, to control API usage. Full player profiles and fixture player performance endpoints are not fetched. The app's local `/api/players` CRUD routes remain separate from the new league scorer feed.
+The scheduled sync calls `GET /teams`, `GET /fixtures`, `GET /standings`, `GET /players`, `GET /teams/statistics`, `GET /fixtures/rounds`, `GET /fixtures/events`, `GET /fixtures/lineups`, and `GET /fixtures/statistics` for the configured league and season. Player season statistics and team statistics are cached in PostgreSQL; player season stats are refreshed daily and imported only after all pages are fetched successfully. Match detail calls are limited to three candidate fixtures per sync, with endpoint-specific caching, to control API usage. Full player profile records and fixture player performance endpoints are not fetched. The app's local `/api/players` CRUD routes remain separate from the league scorer feed.

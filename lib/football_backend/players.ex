@@ -46,6 +46,9 @@ defmodule FootballBackend.Players do
               penalties: stat.penalties,
               shots: stat.shots,
               shots_on_target: stat.shots_on_target,
+              clean_sheets: stat.clean_sheets,
+              passes: stat.passes,
+              key_passes: stat.key_passes,
               yellow_cards: stat.yellow_cards,
               red_cards: stat.red_cards,
               rating: stat.rating,
@@ -59,7 +62,7 @@ defmodule FootballBackend.Players do
     %{source: provider, league_id: league_id, season: season, data: rows}
   end
 
-  def import_provider_scorers(provider, league_id, season, rows) do
+  def import_provider_season_stats(provider, league_id, season, rows) do
     fetched_at = DateTime.utc_now() |> DateTime.truncate(:second)
 
     result =
