@@ -64,8 +64,10 @@ The existing `/api/teams` and `/api/matches` endpoints include synced records. S
 
 Sync coverage counts, resumable player-page progress, historical backfill commands, and optional Telegram progress notifications are described in [sync operations](docs/sync-operations.md).
 
-For provisioning a private Ubuntu server, keeping the Compose service available,
-and running or monitoring syncs, see the [Ubuntu server setup guide](docs/ubuntu-server-setup.md).
+For the home Kubernetes deployment in the area87 k3s cluster, see the
+[area87 Kubernetes deployment guide](docs/football-backend-server-k8s-deployment.md).
+For a standalone private Ubuntu server using Docker Compose, see the
+[Ubuntu server setup guide](docs/ubuntu-server-setup.md).
 
 Example:
 
